@@ -115,3 +115,45 @@ async function replyMessage(replyToken, messages) {
         console.error("Error sending reply:", error.message);
     }
 }
+// Function to send reply messages with retry mechanism
+async function replyMessage(replyToken, messages, retries = 3) {
+    const headers = {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`
+    };
+    const body = {
+        replyToken: replyToken,
+        messages: messages
+    };
+
+    try {
+        const response = await fetch("https://api.line.me/v2/bot/message/reply", {
+            method: "POST",
+            headers: headers,
+            body: JSON.stringify(body)
+        });
+
+        // Handle rate limit error (429)
+        if (response.status === 429) {
+            console.warn("Rate limit exceeded. Retrying...");
+            const retryAfter = response.headers.get("Retry-After") || 1;
+            if (retries > 0) {
+                await new Promise(resolve => setTimeout(resolve, retryAfter * 1000));
+                return replyMessage(replyToken, messages, retries - 1);
+            } else {
+                console.error("Max retries reached. Giving up.");
+                return;
+            }
+        }
+
+        // Check for success
+        const result = await response.json();
+        console.log("Reply Response:", response.status, result);
+
+        if (!response.ok) {
+            throw new Error(`LINE API Error: ${result.message}`);
+        }
+    } catch (error) {
+        console.error("Error sending reply:", error.message);
+    }
+}
