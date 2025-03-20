@@ -1,108 +1,117 @@
 const fetch = require("node-fetch");
-const base64 = require("base-64");
 
 exports.handler = async (event) => {
     try {
-        console.log("Received upload request");
-        console.log("Event Data:", JSON.stringify(event));  // Log the entire event object
+        console.log("Received Webhook Event:", event.body);
 
-        // Check if the method is POST
-        if (event.httpMethod !== "POST") {
-            console.log("Method Not Allowed");
+        const body = JSON.parse(event.body);
+
+        // Check if the event contains any events
+        if (!body.events || body.events.length === 0) {
+            console.warn("No events found in the webhook request");
             return {
-                statusCode: 405,
-                body: JSON.stringify({ message: "Method Not Allowed" })
+                statusCode: 200,
+                body: JSON.stringify({ message: "No events to process" })
             };
         }
 
-        // Log headers and body separately
-        console.log("Request headers:", JSON.stringify(event.headers));
-        console.log("Request body:", event.body);
+        const eventObj = body.events[0];
+        console.log("Processing event:", JSON.stringify(eventObj));
 
-        // Check content type to see if it's multipart/form-data
-        const contentType = event.headers['content-type'] || '';
-        if (!contentType.includes('multipart/form-data')) {
-            console.log("Invalid content type:", contentType);
+        // Check if the event type is a message event
+        if (eventObj.type !== "message" || !eventObj.message) {
+            console.warn("Non-message event received. Event type:", eventObj.type);
             return {
-                statusCode: 400,
-                body: JSON.stringify({ message: "Invalid content type" })
+                statusCode: 200,
+                body: JSON.stringify({ message: "Non-message event received" })
             };
         }
 
-        // Extract boundary from content type
-        const boundary = contentType.split('boundary=')[1];
-        if (!boundary) {
-            console.log("Boundary not found in content-type");
+        // Safely access replyToken and message text
+        const replyToken = eventObj.replyToken;
+        const userMessage = eventObj.message.text || "";
+        
+        if (!replyToken) {
+            console.warn("Missing replyToken. Event ignored.");
             return {
-                statusCode: 400,
-                body: JSON.stringify({ message: "Boundary not found" })
-            };
-        }
-        console.log("Boundary:", boundary);
-
-        // Split the body using the boundary
-        const parts = event.body.split(`--${boundary}`);
-        const filePart = parts.find(part => part.includes('filename='));
-
-        if (!filePart) {
-            console.log("No file part found in the request");
-            return {
-                statusCode: 400,
-                body: JSON.stringify({ message: "No file part found" })
+                statusCode: 200,
+                body: JSON.stringify({ message: "No replyToken found" })
             };
         }
 
-        // Extract file name and content
-        const fileNameMatch = filePart.match(/filename="(.+?)"/);
-        const fileName = fileNameMatch ? fileNameMatch[1] : "uploaded_file.txt";
-        console.log("Extracted file name:", fileName);
+        console.log("User Message:", userMessage);
 
-        // Extract file data from the form data part
-        const fileContent = filePart.split('\r\n\r\n')[1].split('\r\n--')[0];
-        console.log("File content length:", fileContent.length);
+        if (userMessage.toLowerCase() === "file upload") {
+            const flexMessage = {
+                "type": "flex",
+                "altText": "Upload a file",
+                "contents": {
+                    "type": "bubble",
+                    "body": {
+                        "type": "box",
+                        "layout": "vertical",
+                        "contents": [
+                            {
+                                "type": "text",
+                                "text": "Upload a File",
+                                "weight": "bold",
+                                "size": "xl"
+                            },
+                            {
+                                "type": "button",
+                                "style": "primary",
+                                "color": "#1DB446",
+                                "action": {
+                                    "type": "uri",
+                                    "label": "Go to Upload Page",
+                                    "uri": "https://vocal-genie-36c2fb.netlify.app/"
+                                }
+                            }
+                        ]
+                    }
+                }
+            };
 
-        // Encode file content to Base64
-        const encodedContent = base64.encode(fileContent);
-
-        console.log(`Uploading file: ${fileName} to GitHub`);
-
-        // GitHub API URL
-        const url = `https://api.github.com/repos/darekasanga/line-uploader-netlify/contents/${fileName}`;
-
-        const response = await fetch(url, {
-            method: "PUT",
-            headers: {
-                "Authorization": `token ${process.env.GITHUB_TOKEN}`,
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-                message: `Upload ${fileName}`,
-                content: encodedContent
-            })
-        });
-
-        const result = await response.json();
-        console.log("GitHub API response status:", response.status);
-        console.log("GitHub API response:", JSON.stringify(result));
-
-        if (!response.ok) {
-            throw new Error(`GitHub API error: ${result.message}`);
+            await replyMessage(replyToken, [flexMessage]);
+            console.log("Sent Flex Message Successfully");
+            return {
+                statusCode: 200,
+                body: JSON.stringify({ message: "Flex message sent" })
+            };
         }
-
-        console.log("File uploaded successfully to GitHub");
 
         return {
             statusCode: 200,
-            body: JSON.stringify({
-                message: "File uploaded successfully",
-                url: result.content.html_url
-            })
+            body: JSON.stringify({ message: "Webhook received" })
         };
     } catch (error) {
-        console.error("Error uploading file:", error.message);
+        console.error("Error handling webhook:", error.message);
         return {
             statusCode: 500,
             body: JSON.stringify({ error: error.message })
         };
     }
 };
+
+// Function to send reply messages
+async function replyMessage(replyToken, messages) {
+    const headers = {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`
+    };
+    const body = {
+        replyToken: replyToken,
+        messages: messages
+    };
+
+    try {
+        const response = await fetch("https://api.line.me/v2/bot/message/reply", {
+            method: "POST",
+            headers: headers,
+            body: JSON.stringify(body)
+        });
+        console.log("Reply Response:", response.status, await response.text());
+    } catch (error) {
+        console.error("Error sending reply:", error.message);
+    }
+}
