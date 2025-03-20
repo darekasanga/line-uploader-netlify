@@ -13,7 +13,17 @@ exports.handler = async (event) => {
             };
         }
 
-        // Check if the event body is valid JSON
+        // Check content type to ensure it's application/json
+        const contentType = event.headers['content-type'] || '';
+        if (!contentType.includes('application/json')) {
+            console.log("Invalid content type:", contentType);
+            return {
+                statusCode: 400,
+                body: JSON.stringify({ message: "Invalid content type" })
+            };
+        }
+
+        // Parse the JSON body
         let body;
         try {
             body = JSON.parse(event.body);
@@ -65,7 +75,14 @@ exports.handler = async (event) => {
             };
         }
 
-        // Respond with a success message for testing
+        // Send a reply message to LINE
+        await replyMessage(replyToken, [
+            {
+                "type": "text",
+                "text": `You said: ${userMessage}`
+            }
+        ]);
+
         return {
             statusCode: 200,
             body: JSON.stringify({ message: "Webhook received and processed successfully" })
@@ -78,3 +95,32 @@ exports.handler = async (event) => {
         };
     }
 };
+
+// Function to send reply messages to LINE
+async function replyMessage(replyToken, messages) {
+    const headers = {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`
+    };
+    const body = {
+        replyToken: replyToken,
+        messages: messages
+    };
+
+    try {
+        const response = await fetch("https://api.line.me/v2/bot/message/reply", {
+            method: "POST",
+            headers: headers,
+            body: JSON.stringify(body)
+        });
+
+        const result = await response.json();
+        console.log("LINE API Response:", response.status, result);
+
+        if (!response.ok) {
+            throw new Error(`LINE API error: ${result.message}`);
+        }
+    } catch (error) {
+        console.error("Error sending reply:", error.message);
+    }
+}
