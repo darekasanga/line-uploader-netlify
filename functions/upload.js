@@ -1,9 +1,24 @@
 const fetch = require("node-fetch");
+const crypto = require("crypto");
 
 exports.handler = async (event) => {
     try {
         console.log("Received Webhook Event:", event.body);
 
+        // Verify Signature
+        const channelSecret = process.env.LINE_CHANNEL_SECRET;
+        const signature = event.headers['x-line-signature'];
+        const body = event.body;
+        const hash = crypto.createHmac('SHA256', channelSecret).update(body).digest('base64');
+
+        if (signature !== hash) {
+            console.error("Signature validation failed.");
+            return {
+                statusCode: 403,
+                body: JSON.stringify({ message: "Signature validation failed" })
+            };
+        }
+        
         // Check if the request method is POST
         if (event.httpMethod !== "POST") {
             console.warn("Invalid HTTP method:", event.httpMethod);
@@ -13,20 +28,10 @@ exports.handler = async (event) => {
             };
         }
 
-        // Check content type to ensure it's application/json
-        const contentType = event.headers['content-type'] || '';
-        if (!contentType.includes('application/json')) {
-            console.log("Invalid content type:", contentType);
-            return {
-                statusCode: 400,
-                body: JSON.stringify({ message: "Invalid content type" })
-            };
-        }
-
         // Parse the JSON body
-        let body;
+        let bodyObj;
         try {
-            body = JSON.parse(event.body);
+            bodyObj = JSON.parse(event.body);
         } catch (parseError) {
             console.error("Error parsing JSON:", parseError.message);
             return {
@@ -35,18 +40,18 @@ exports.handler = async (event) => {
             };
         }
 
-        console.log("Parsed body:", JSON.stringify(body));
+        console.log("Parsed body:", JSON.stringify(bodyObj));
 
         // Check if the event contains any events
-        if (!body.events || body.events.length === 0) {
+        if (!bodyObj.events || bodyObj.events.length === 0) {
             console.warn("No events found in the request");
             return {
-                statusCode: 400,
+                statusCode: 200,
                 body: JSON.stringify({ message: "No events to process" })
             };
         }
 
-        const eventObj = body.events[0];
+        const eventObj = bodyObj.events[0];
         console.log("Processing event:", JSON.stringify(eventObj));
 
         // Check if the event type is "message"
@@ -75,7 +80,7 @@ exports.handler = async (event) => {
             };
         }
 
-        // Send a reply message to LINE
+        // Send a simple reply message
         await replyMessage(replyToken, [
             {
                 "type": "text",
@@ -90,7 +95,7 @@ exports.handler = async (event) => {
     } catch (error) {
         console.error("Error handling webhook:", error.message);
         return {
-            statusCode: 500,
+            statusCode: 200,
             body: JSON.stringify({ error: error.message })
         };
     }
