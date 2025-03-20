@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Upload a File to LINE Bot</title>
+</head>
+<body>
+    <h2>Upload a File</h2>
+    <form id="uploadForm">
+        <input type="file" id="file" required>
+        <button type="submit">Upload</button>
+    </form>
+    <div id="result"></div>
+
+    <script>
+        const form = document.getElementById("uploadForm");
+        form.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const fileInput = document.getElementById("file");
+            if (!fileInput.files.length) {
+                alert("Please select a file to upload!");
+                return;
+            }
+
+            const file = fileInput.files[0];
+            const formData = new FormData();
+            formData.append("file", file);
+
+            try {
+                const response = await fetch("/.netlify/functions/upload", {
+                    method: "POST",
+                    body: formData,
+                });
+
+                if (!response.ok) {
+                    throw new Error("Upload failed: " + response.statusText);
+                }
+
+                const result = await response.json();
+                document.getElementById("result").innerHTML = `
+                    <p>Upload Complete!</p>
+                    <p>File URL: <a href="${result.url}" target="_blank">${result.url}</a></p>
+                `;
+            } catch (error) {
+                alert("Error during upload: " + error.message);
+            }
+        });
+    </script>
+</body>
+</html>
