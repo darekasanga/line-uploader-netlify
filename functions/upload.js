@@ -1,87 +1,75 @@
-const fetch = require("node-fetch");
-const base64 = require("base-64");
+const axios = require('axios');
 
+// Reply to LINE function
+async function replyToLine(replyToken, message) {
+    const headers = {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.LINE_ACCESS_TOKEN}`
+    };
+
+    const data = {
+        replyToken: replyToken,
+        messages: [
+            {
+                type: 'text',
+                text: message
+            }
+        ]
+    };
+
+    try {
+        const response = await axios.post('https://api.line.me/v2/bot/message/reply', data, { headers });
+        console.log('LINE API Response Status:', response.status);
+        console.log('LINE API Response Body:', response.data);
+    } catch (error) {
+        console.error('Error sending reply to LINE:', error.response ? error.response.data : error.message);
+    }
+}
+
+// Upload handler
 exports.handler = async (event) => {
     try {
-        console.log("Received upload request");
+        // Log the received event
+        console.log('Received Webhook Event:', event.body);
 
+        // Parse the JSON body
         const body = JSON.parse(event.body);
+        console.log('Parsed body:', body);
 
-        // Validate the file data
-        if (!body.fileName || !body.fileContent) {
+        // Check for events
+        if (!body.events || body.events.length === 0) {
+            console.warn("No events found in the request");
             return {
-                statusCode: 400,
-                body: JSON.stringify({
-                    status: "error",
-                    message: "Invalid file data"
-                })
+                statusCode: 200,
+                body: JSON.stringify({ message: "No events to process" })
             };
         }
 
-        const fileName = body.fileName;
-        const fileContent = body.fileContent;
-        const downsizedFileName = `downsized_${fileName}`;
+        // Process the event
+        const eventObj = body.events[0];
+        const replyToken = eventObj.replyToken;
+        const userMessage = eventObj.message.text;
 
-        // Upload original file to GitHub
-        const originalUrl = await uploadToGitHub(fileName, fileContent);
-        console.log("Original file uploaded to:", originalUrl);
+        console.log('Reply Token:', replyToken);
+        console.log('User Message:', userMessage);
 
-        // Downsize the image (if necessary) and upload
-        const downsizedContent = downsizeImage(fileContent);  // Your downsizing logic here
-        const downsizedUrl = await uploadToGitHub(downsizedFileName, downsizedContent);
-        console.log("Downsized file uploaded to:", downsizedUrl);
+        // Reply based on user message
+        if (userMessage === "file upload") {
+            const uploadUrl = "https://vocal-genie-36c2fb.netlify.app/upload.html";
+            await replyToLine(replyToken, `Upload your file here: ${uploadUrl}`);
+        } else {
+            await replyToLine(replyToken, `You said: ${userMessage}`);
+        }
 
         return {
             statusCode: 200,
-            body: JSON.stringify({
-                status: "success",
-                message: "File uploaded successfully",
-                original_url: originalUrl,
-                downsized_url: downsizedUrl
-            })
+            body: JSON.stringify({ message: "Success" })
         };
     } catch (error) {
-        console.error("Error during file upload:", error.message);
+        console.error("Error handling webhook:", error.message);
         return {
             statusCode: 500,
-            body: JSON.stringify({
-                status: "error",
-                message: error.message
-            })
+            body: JSON.stringify({ message: "Server Error", error: error.message })
         };
     }
 };
-
-// Function to upload a file to GitHub
-async function uploadToGitHub(fileName, fileContent) {
-    const url = `https://api.github.com/repos/darekasanga/line-ai-chatbot/contents/${fileName}`;
-    const headers = {
-        "Authorization": `Bearer ${process.env.GITHUB_TOKEN}`,
-        "Content-Type": "application/json"
-    };
-    const data = {
-        message: `Upload ${fileName}`,
-        content: base64.encode(fileContent),
-        branch: "file"
-    };
-
-    try {
-        const response = await fetch(url, {
-            method: "PUT",
-            headers: headers,
-            body: JSON.stringify(data)
-        });
-
-        const result = await response.json();
-        console.log("GitHub API Response:", result);
-
-        if (!response.ok) {
-            throw new Error(result.message || "GitHub upload failed");
-        }
-
-        return `https://raw.githubusercontent.com/darekasanga/line-ai-chatbot/file/${fileName}`;
-    } catch (error) {
-        console.error("Error uploading to GitHub:", error.message);
-        throw error;
-    }
-}
