@@ -129,3 +129,6 @@ async function replyMessage(replyToken, messages) {
         console.error("Error sending reply:", error.message);
     }
 }
+console.log("Received replyToken:", eventObj.replyToken);
+console.log("Received message type:", eventObj.message.type);
+console.log("Received message text:", eventObj.message.text);
