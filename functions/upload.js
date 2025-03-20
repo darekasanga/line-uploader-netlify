@@ -1,159 +1,101 @@
 const fetch = require("node-fetch");
+const base64 = require("base-64");
 
 exports.handler = async (event) => {
     try {
-        console.log("Received Webhook Event:", event.body);
+        console.log("Received upload request");
 
-        const body = JSON.parse(event.body);
-
-        // Check if the event contains any events
-        if (!body.events || body.events.length === 0) {
-            console.warn("No events found in the webhook request");
+        // Check if the method is POST
+        if (event.httpMethod !== "POST") {
+            console.log("Method Not Allowed");
             return {
-                statusCode: 200,
-                body: JSON.stringify({ message: "No events to process" })
+                statusCode: 405,
+                body: JSON.stringify({ message: "Method Not Allowed" })
             };
         }
 
-        const eventObj = body.events[0];
-        console.log("Processing event:", JSON.stringify(eventObj));
+        // Log the basic event data without file content
+        console.log("Event Data:", {
+            method: event.httpMethod,
+            headers: event.headers,
+            bodyLength: event.body ? event.body.length : 0
+        });
 
-        // Check if the event type is a message event
-        if (eventObj.type !== "message" || !eventObj.message) {
-            console.warn("Non-message event received. Event type:", eventObj.type);
+        // Check content type to see if it's multipart/form-data
+        const contentType = event.headers['content-type'] || '';
+        if (!contentType.includes('multipart/form-data')) {
+            console.log("Invalid content type:", contentType);
             return {
-                statusCode: 200,
-                body: JSON.stringify({ message: "Non-message event received" })
+                statusCode: 400,
+                body: JSON.stringify({ message: "Invalid content type" })
             };
         }
 
-        // Safely access replyToken and message text
-        const replyToken = eventObj.replyToken;
-        const userMessage = eventObj.message.text || "";
-        
-        if (!replyToken) {
-            console.warn("Missing replyToken. Event ignored.");
+        // Extract boundary from content type
+        const boundary = contentType.split('boundary=')[1];
+        const parts = event.body.split(`--${boundary}`);
+        const filePart = parts.find(part => part.includes('filename='));
+
+        if (!filePart) {
+            console.log("No file part found in the request");
             return {
-                statusCode: 200,
-                body: JSON.stringify({ message: "No replyToken found" })
+                statusCode: 400,
+                body: JSON.stringify({ message: "No file part found" })
             };
         }
 
-        console.log("User Message:", userMessage);
+        // Extract file name and content
+        const fileNameMatch = filePart.match(/filename="(.+?)"/);
+        const fileName = fileNameMatch ? fileNameMatch[1] : "uploaded_file.txt";
+        console.log("Extracted file name:", fileName);
 
-        if (userMessage.toLowerCase() === "file upload") {
-            const flexMessage = {
-                "type": "flex",
-                "altText": "Upload a file",
-                "contents": {
-                    "type": "bubble",
-                    "body": {
-                        "type": "box",
-                        "layout": "vertical",
-                        "contents": [
-                            {
-                                "type": "text",
-                                "text": "Upload a File",
-                                "weight": "bold",
-                                "size": "xl"
-                            },
-                            {
-                                "type": "button",
-                                "style": "primary",
-                                "color": "#1DB446",
-                                "action": {
-                                    "type": "uri",
-                                    "label": "Go to Upload Page",
-                                    "uri": "https://vocal-genie-36c2fb.netlify.app/"
-                                }
-                            }
-                        ]
-                    }
-                }
-            };
+        // Extract file data from the form data part
+        const fileContent = filePart.split('\r\n\r\n')[1].split('\r\n--')[0];
+        console.log("File content length:", fileContent.length);
+        console.log("File content (first 100 chars):", fileContent.substring(0, 100));
 
-            await replyMessage(replyToken, [flexMessage]);
-            console.log("Sent Flex Message Successfully");
-            return {
-                statusCode: 200,
-                body: JSON.stringify({ message: "Flex message sent" })
-            };
+        // Encode file content to Base64
+        const encodedContent = base64.encode(fileContent);
+
+        console.log(`Uploading file: ${fileName} to GitHub`);
+
+        // GitHub API URL
+        const url = `https://api.github.com/repos/darekasanga/line-uploader-netlify/contents/${fileName}`;
+
+        const response = await fetch(url, {
+            method: "PUT",
+            headers: {
+                "Authorization": `token ${process.env.GITHUB_TOKEN}`,
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                message: `Upload ${fileName}`,
+                content: encodedContent
+            })
+        });
+
+        const result = await response.json();
+        console.log("GitHub API response status:", response.status);
+        console.log("GitHub API response:", JSON.stringify(result));
+
+        if (!response.ok) {
+            throw new Error(`GitHub API error: ${result.message}`);
         }
+
+        console.log("File uploaded successfully to GitHub");
 
         return {
             statusCode: 200,
-            body: JSON.stringify({ message: "Webhook received" })
+            body: JSON.stringify({
+                message: "File uploaded successfully",
+                url: result.content.html_url
+            })
         };
     } catch (error) {
-        console.error("Error handling webhook:", error.message);
+        console.error("Error uploading file:", error.message);
         return {
             statusCode: 500,
             body: JSON.stringify({ error: error.message })
         };
     }
 };
-
-// Function to send reply messages
-async function replyMessage(replyToken, messages) {
-    const headers = {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`
-    };
-    const body = {
-        replyToken: replyToken,
-        messages: messages
-    };
-
-    try {
-        const response = await fetch("https://api.line.me/v2/bot/message/reply", {
-            method: "POST",
-            headers: headers,
-            body: JSON.stringify(body)
-        });
-        console.log("Reply Response:", response.status, await response.text());
-    } catch (error) {
-        console.error("Error sending reply:", error.message);
-    }
-}
-// Function to send reply messages with retry mechanism
-async function replyMessage(replyToken, messages, retries = 3) {
-    const headers = {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`
-    };
-    const body = {
-        replyToken: replyToken,
-        messages: messages
-    };
-
-    try {
-        const response = await fetch("https://api.line.me/v2/bot/message/reply", {
-            method: "POST",
-            headers: headers,
-            body: JSON.stringify(body)
-        });
-
-        // Handle rate limit error (429)
-        if (response.status === 429) {
-            console.warn("Rate limit exceeded. Retrying...");
-            const retryAfter = response.headers.get("Retry-After") || 1;
-            if (retries > 0) {
-                await new Promise(resolve => setTimeout(resolve, retryAfter * 1000));
-                return replyMessage(replyToken, messages, retries - 1);
-            } else {
-                console.error("Max retries reached. Giving up.");
-                return;
-            }
-        }
-
-        // Check for success
-        const result = await response.json();
-        console.log("Reply Response:", response.status, result);
-
-        if (!response.ok) {
-            throw new Error(`LINE API Error: ${result.message}`);
-        }
-    } catch (error) {
-        console.error("Error sending reply:", error.message);
-    }
-}
