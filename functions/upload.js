@@ -1,133 +1,53 @@
-const fetch = require("node-fetch");
-const crypto = require("crypto");
+const fs = require('fs');
+const path = require('path');
 
 exports.handler = async (event) => {
     try {
-        console.log("Received Webhook Event:", event.body);
+        console.log("Received upload request");
 
-        // Verify Signature
-        const channelSecret = process.env.LINE_CHANNEL_SECRET;
-        const signature = event.headers['x-line-signature'];
-        const body = event.body;
-        const hash = crypto.createHmac('SHA256', channelSecret).update(body).digest('base64');
+        // Extract the file from the request
+        const body = JSON.parse(event.body);
+        const fileName = body.fileName;
+        const fileContent = body.fileContent;
 
-        if (signature !== hash) {
-            console.error("Signature validation failed.");
-            return {
-                statusCode: 403,
-                body: JSON.stringify({ message: "Signature validation failed" })
-            };
-        }
-
-        // Check if the request method is POST
-        if (event.httpMethod !== "POST") {
-            console.warn("Invalid HTTP method:", event.httpMethod);
-            return {
-                statusCode: 405,
-                body: JSON.stringify({ message: "Method Not Allowed" })
-            };
-        }
-
-        // Parse the JSON body
-        let bodyObj;
-        try {
-            bodyObj = JSON.parse(event.body);
-        } catch (parseError) {
-            console.error("Error parsing JSON:", parseError.message);
+        if (!fileName || !fileContent) {
             return {
                 statusCode: 400,
-                body: JSON.stringify({ message: "Invalid JSON format" })
+                body: JSON.stringify({
+                    status: "error",
+                    message: "Invalid file data"
+                })
             };
         }
 
-        console.log("Parsed body:", JSON.stringify(bodyObj));
+        // Decode the base64 file content
+        const fileBuffer = Buffer.from(fileContent, 'base64');
+        const filePath = path.join('/tmp', fileName);
 
-        // Check if the event contains any events
-        if (!bodyObj.events || bodyObj.events.length === 0) {
-            console.warn("No events found in the request. This could be a verification request from LINE Developers Console.");
-            return {
-                statusCode: 200,
-                body: JSON.stringify({ message: "No events to process. Possibly a verification request." })
-            };
-        }
+        // Save the file to the temporary directory
+        fs.writeFileSync(filePath, fileBuffer);
 
-        // Get the first event object
-        const eventObj = bodyObj.events[0];
-        console.log("Processing event:", JSON.stringify(eventObj));
+        console.log("File uploaded to:", filePath);
 
-        // Check if the event type is "message"
-        if (eventObj.type !== "message" || !eventObj.message) {
-            console.warn("Non-message event received. Event type:", eventObj.type);
-            return {
-                statusCode: 200,
-                body: JSON.stringify({ message: "Non-message event received" })
-            };
-        }
-
-        // Safely access replyToken and message text
-        const replyToken = eventObj.replyToken || null;
-        const userMessage = eventObj.message.text || "";
-
-        // Log the extracted message and token
-        console.log("Reply Token:", replyToken);
-        console.log("User Message:", userMessage);
-
-        // If replyToken is missing, skip processing
-        if (!replyToken) {
-            console.warn("Missing replyToken. Event ignored.");
-            return {
-                statusCode: 200,
-                body: JSON.stringify({ message: "No replyToken found" })
-            };
-        }
-
-        // Send a simple reply message
-        await replyMessage(replyToken, [
-            {
-                "type": "text",
-                "text": `You said: ${userMessage}`
-            }
-        ]);
+        // Construct the file URL
+        const fileUrl = `https://your-website.com/uploads/${fileName}`;
 
         return {
             statusCode: 200,
-            body: JSON.stringify({ message: "Webhook received and processed successfully" })
+            body: JSON.stringify({
+                status: "success",
+                message: "File uploaded successfully",
+                original_url: fileUrl
+            })
         };
     } catch (error) {
-        console.error("Error handling webhook:", error.message);
+        console.error("Error during file upload:", error.message);
         return {
-            statusCode: 200,
-            body: JSON.stringify({ error: error.message })
+            statusCode: 500,
+            body: JSON.stringify({
+                status: "error",
+                message: error.message
+            })
         };
     }
 };
-
-// Function to send reply messages to LINE
-async function replyMessage(replyToken, messages) {
-    const headers = {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`
-    };
-    const body = {
-        replyToken: replyToken,
-        messages: messages
-    };
-
-    try {
-        const response = await fetch("https://api.line.me/v2/bot/message/reply", {
-            method: "POST",
-            headers: headers,
-            body: JSON.stringify(body)
-        });
-
-        const result = await response.json();
-        console.log("LINE API Response Status:", response.status);
-        console.log("LINE API Response Body:", result);
-
-        if (!response.ok) {
-            throw new Error(`LINE API error: ${result.message}`);
-        }
-    } catch (error) {
-        console.error("Error sending reply:", error.message);
-    }
-}
