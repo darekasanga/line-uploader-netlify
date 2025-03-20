@@ -7,41 +7,55 @@ exports.handler = async (event) => {
 
         // Check if the method is POST
         if (event.httpMethod !== "POST") {
+            console.log("Method Not Allowed");
             return {
                 statusCode: 405,
                 body: JSON.stringify({ message: "Method Not Allowed" })
             };
         }
 
-        // Parse the file content from the form data
+        // Log headers to check content type
+        console.log("Request headers:", event.headers);
+
+        // Check content type to see if it's multipart/form-data
         const contentType = event.headers['content-type'] || '';
         if (!contentType.includes('multipart/form-data')) {
+            console.log("Invalid content type:", contentType);
             return {
                 statusCode: 400,
                 body: JSON.stringify({ message: "Invalid content type" })
             };
         }
 
+        // Log the raw event body for debugging
+        console.log("Raw event body:", event.body);
+
+        // Extract boundary from content type
         const boundary = contentType.split('boundary=')[1];
         const parts = event.body.split(`--${boundary}`);
         const filePart = parts.find(part => part.includes('filename='));
 
         if (!filePart) {
+            console.log("No file part found in the request");
             return {
                 statusCode: 400,
                 body: JSON.stringify({ message: "No file part found" })
             };
         }
 
-        // Extract file content
+        // Extract file name and content
         const fileNameMatch = filePart.match(/filename="(.+?)"/);
         const fileName = fileNameMatch ? fileNameMatch[1] : "uploaded_file.txt";
+        console.log("Extracted file name:", fileName);
 
         // Extract file data from the form data part
         const fileContent = filePart.split('\r\n\r\n')[1].split('\r\n--')[0];
+        console.log("File content length:", fileContent.length);
+
+        // Encode file content to Base64
         const encodedContent = base64.encode(fileContent);
 
-        console.log(`Uploading file: ${fileName}`);
+        console.log(`Uploading file: ${fileName} to GitHub`);
 
         // GitHub API URL
         const url = `https://api.github.com/repos/darekasanga/line-uploader-netlify/contents/${fileName}`;
@@ -59,11 +73,14 @@ exports.handler = async (event) => {
         });
 
         const result = await response.json();
-        console.log("GitHub response:", result);
+        console.log("GitHub API response status:", response.status);
+        console.log("GitHub API response:", JSON.stringify(result));
 
         if (!response.ok) {
             throw new Error(`GitHub API error: ${result.message}`);
         }
+
+        console.log("File uploaded successfully to GitHub");
 
         return {
             statusCode: 200,
