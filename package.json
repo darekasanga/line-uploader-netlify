@@ -2,6 +2,7 @@
   "name": "line-uploader-netlify",
   "version": "1.0.0",
   "dependencies": {
-    "node-fetch": "^2.6.1"
+    "node-fetch": "^2.6.1",
+    "base-64": "^1.0.0"
   }
 }
