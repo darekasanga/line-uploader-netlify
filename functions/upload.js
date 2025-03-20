@@ -4,6 +4,7 @@ const base64 = require("base-64");
 exports.handler = async (event) => {
     try {
         console.log("Received upload request");
+        console.log("Event Data:", JSON.stringify(event));  // Log the entire event object
 
         // Check if the method is POST
         if (event.httpMethod !== "POST") {
@@ -14,8 +15,9 @@ exports.handler = async (event) => {
             };
         }
 
-        // Log headers to check content type
-        console.log("Request headers:", event.headers);
+        // Log headers and body separately
+        console.log("Request headers:", JSON.stringify(event.headers));
+        console.log("Request body:", event.body);
 
         // Check content type to see if it's multipart/form-data
         const contentType = event.headers['content-type'] || '';
@@ -27,11 +29,18 @@ exports.handler = async (event) => {
             };
         }
 
-        // Log the raw event body for debugging
-        console.log("Raw event body:", event.body);
-
         // Extract boundary from content type
         const boundary = contentType.split('boundary=')[1];
+        if (!boundary) {
+            console.log("Boundary not found in content-type");
+            return {
+                statusCode: 400,
+                body: JSON.stringify({ message: "Boundary not found" })
+            };
+        }
+        console.log("Boundary:", boundary);
+
+        // Split the body using the boundary
         const parts = event.body.split(`--${boundary}`);
         const filePart = parts.find(part => part.includes('filename='));
 
