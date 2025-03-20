@@ -1,53 +1,120 @@
 const fetch = require("node-fetch");
-const base64 = require("base-64");
 
 exports.handler = async (event) => {
     try {
-        // Check if the request method is POST
-        if (event.httpMethod !== "POST") {
+        console.log("Received Event:", event.body);  // Log the entire event
+
+        const body = JSON.parse(event.body);
+
+        // Check if there are any events
+        if (!body.events || body.events.length === 0) {
+            console.warn("No events found in the request");
             return {
-                statusCode: 405,
-                body: JSON.stringify({ message: "Method Not Allowed" })
+                statusCode: 200,
+                body: JSON.stringify({ message: "No events to process" })
             };
         }
 
-        // Get file data from the request body
-        const formData = JSON.parse(event.body);
-        const fileName = formData.fileName || "uploaded_file.txt";
-        const fileContent = formData.fileContent || "Hello from Netlify!";
+        const eventObj = body.events[0];
+        console.log("Processing event:", JSON.stringify(eventObj));
 
-        // GitHub API URL
-        const url = `https://api.github.com/repos/darekasanga/line-uploader-netlify/contents/${fileName}`;
-        const encodedContent = base64.encode(fileContent);
+        // Check if the event type is a message event
+        if (eventObj.type !== "message" || !eventObj.message) {
+            console.warn("Non-message event received. Event type:", eventObj.type);
+            return {
+                statusCode: 200,
+                body: JSON.stringify({ message: "Non-message event received" })
+            };
+        }
 
-        // Upload the file to GitHub
-        const response = await fetch(url, {
-            method: "PUT",
-            headers: {
-                "Authorization": `token ${process.env.GITHUB_TOKEN}`,
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-                message: `Upload ${fileName}`,
-                content: encodedContent
-            })
-        });
+        // Safely access replyToken and message text
+        const replyToken = eventObj.replyToken || null;
+        const userMessage = eventObj.message.text || "";
 
-        const result = await response.json();
+        // Log the extracted message and token
+        console.log("Reply Token:", replyToken);
+        console.log("User Message:", userMessage);
 
-        // Return success message with file URL
+        // If replyToken is missing, skip processing
+        if (!replyToken) {
+            console.warn("Missing replyToken. Event ignored.");
+            return {
+                statusCode: 200,
+                body: JSON.stringify({ message: "No replyToken found" })
+            };
+        }
+
+        // Check for "file upload" command
+        if (userMessage.toLowerCase() === "file upload") {
+            const flexMessage = {
+                "type": "flex",
+                "altText": "Upload a file",
+                "contents": {
+                    "type": "bubble",
+                    "body": {
+                        "type": "box",
+                        "layout": "vertical",
+                        "contents": [
+                            {
+                                "type": "text",
+                                "text": "Upload a File",
+                                "weight": "bold",
+                                "size": "xl"
+                            },
+                            {
+                                "type": "button",
+                                "style": "primary",
+                                "color": "#1DB446",
+                                "action": {
+                                    "type": "uri",
+                                    "label": "Go to Upload Page",
+                                    "uri": "https://vocal-genie-36c2fb.netlify.app/"
+                                }
+                            }
+                        ]
+                    }
+                }
+            };
+
+            await replyMessage(replyToken, [flexMessage]);
+            return {
+                statusCode: 200,
+                body: JSON.stringify({ message: "Flex message sent" })
+            };
+        }
+
         return {
             statusCode: 200,
-            body: JSON.stringify({
-                message: "File uploaded successfully",
-                url: result.content.html_url
-            })
+            body: JSON.stringify({ message: "Webhook received" })
         };
     } catch (error) {
-        console.error("Error uploading file:", error.message);
+        console.error("Error handling webhook:", error.message);
         return {
             statusCode: 500,
             body: JSON.stringify({ error: error.message })
         };
     }
 };
+
+// Function to send reply messages
+async function replyMessage(replyToken, messages) {
+    const headers = {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`
+    };
+    const body = {
+        replyToken: replyToken,
+        messages: messages
+    };
+
+    try {
+        const response = await fetch("https://api.line.me/v2/bot/message/reply", {
+            method: "POST",
+            headers: headers,
+            body: JSON.stringify(body)
+        });
+        console.log("Reply Response:", response.status, await response.text());
+    } catch (error) {
+        console.error("Error sending reply:", error.message);
+    }
+}
