@@ -1,11 +1,11 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Upload a File to LINE Bot</title>
+    <title>Upload a File to GitHub</title>
 </head>
 <body>
     <h2>Upload a File</h2>
-    <form id="uploadForm">
+    <form id="uploadForm" enctype="multipart/form-data">
         <input type="file" id="file" required>
         <button type="submit">Upload</button>
     </form>
@@ -23,7 +23,7 @@
 
             const file = fileInput.files[0];
             const formData = new FormData();
-            formData.append("file", file);
+            formData.append("file", file, file.name);
 
             try {
                 const response = await fetch("/.netlify/functions/upload", {
