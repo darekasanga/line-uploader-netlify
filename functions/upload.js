@@ -18,7 +18,7 @@ exports.handler = async (event) => {
                 body: JSON.stringify({ message: "Signature validation failed" })
             };
         }
-        
+
         // Check if the request method is POST
         if (event.httpMethod !== "POST") {
             console.warn("Invalid HTTP method:", event.httpMethod);
@@ -44,13 +44,14 @@ exports.handler = async (event) => {
 
         // Check if the event contains any events
         if (!bodyObj.events || bodyObj.events.length === 0) {
-            console.warn("No events found in the request");
+            console.warn("No events found in the request. This could be a verification request from LINE Developers Console.");
             return {
                 statusCode: 200,
-                body: JSON.stringify({ message: "No events to process" })
+                body: JSON.stringify({ message: "No events to process. Possibly a verification request." })
             };
         }
 
+        // Get the first event object
         const eventObj = bodyObj.events[0];
         console.log("Processing event:", JSON.stringify(eventObj));
 
@@ -120,7 +121,8 @@ async function replyMessage(replyToken, messages) {
         });
 
         const result = await response.json();
-        console.log("LINE API Response:", response.status, result);
+        console.log("LINE API Response Status:", response.status);
+        console.log("LINE API Response Body:", result);
 
         if (!response.ok) {
             throw new Error(`LINE API error: ${result.message}`);
@@ -129,6 +131,3 @@ async function replyMessage(replyToken, messages) {
         console.error("Error sending reply:", error.message);
     }
 }
-console.log("Received replyToken:", eventObj.replyToken);
-console.log("Received message type:", eventObj.message.type);
-console.log("Received message text:", eventObj.message.text);
